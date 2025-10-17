@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>【最終版】我的英文單字練習本 - 共享雲端版</title>
+    <title>【最終優化版】我的英文單字練習本 - 共享雲端版</title>
     
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -25,7 +25,7 @@
         const app = firebase.initializeApp(firebaseConfig);
         const db = app.firestore(); 
         
-        // 將必要的物件導出到全域，供下方的主邏輯使用
+        // 將必要的物件導出到全域
         window.db = db;
         window.vocabCollection = db.collection("vocabWords");
     </script>
@@ -46,7 +46,19 @@
         button { background-color: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; transition: background-color 0.3s; }
         button:hover { background-color: #218838; }
         #quizArea { border: 1px dashed #007bff; padding: 20px; border-radius: 8px; margin-top: 20px; }
-        #quizQuestion { font-size: 24px; font-weight: bold; margin-bottom: 15px; min-height: 30px; }
+        /* 確保題目區塊有足夠的空間顯示 */
+        #quizQuestion { 
+            font-size: 24px; 
+            font-weight: bold; 
+            margin-bottom: 15px; 
+            min-height: 40px; /* 增加最小高度，確保內容可以顯示 */
+            color: #333; /* 確保題目顏色清晰 */
+        }
+        #quizType {
+             font-weight: normal; 
+             color: #555;
+             margin-bottom: 10px;
+        }
         #hintArea { margin-top: 10px; color: #555; min-height: 20px; }
         .feedback { margin-top: 15px; padding: 10px; border-radius: 6px; display: none; }
         .feedback.correct { background-color: #d4edda; color: #155724; }
@@ -181,13 +193,11 @@
             return;
         }
 
-        // 使用傳統的 onSnapshot 監聽方式
         window.vocabCollection.onSnapshot((snapshot) => {
             vocabList = [];
             snapshot.forEach((doc) => {
                 vocabList.push({ id: doc.id, ...doc.data() });
             });
-            // 讓單字清單按英文單字字母排序，方便查找
             vocabList.sort((a, b) => a.word.localeCompare(b.word));
             
             renderVocabList(); 
@@ -196,8 +206,6 @@
             document.getElementById('vocabCount').textContent = '載入失敗';
         });
     }
-
-    // ** 1. 上傳/更新單字功能 (寫入 Firestore) **
 
     // 問題 1/空白頁面修正：將監聽器定義成函數
     function setupFormListener() {
@@ -218,11 +226,9 @@
 
             try {
                 if (editingWord) {
-                    // 修改現有單字
                     await window.vocabCollection.doc(editingWord.id).update(newWordData);
                     msg.textContent = `成功更新單字: ${newWordData.word}`;
                 } else {
-                    // 新增單字
                     const existing = vocabList.find(v => v.word.toLowerCase() === newWordData.word.toLowerCase());
                     if (existing) {
                         alert(`單字 "${newWordData.word}" 已經存在於清單中！`);
@@ -280,7 +286,6 @@
         });
     }
 
-    // 問題 4 修正：編輯功能
     function editVocab(docId) {
         const vocab = vocabList.find(v => v.id === docId);
         if (!vocab) return;
@@ -312,6 +317,7 @@
     // ** 2. 抽考功能 (解決問題 2: 題目顯示 & 問題 3: 總提示次數限制) **
 
     function startQuiz() {
+        // 問題 2 修正：檢查單字是否已載入
         if (vocabList.length === 0) {
             alert('單字清單是空的，請先上傳單字，或等待資料庫載入完成！');
             return;
@@ -320,8 +326,9 @@
         const count = parseInt(document.getElementById('quizCount').value);
         const rangeText = document.getElementById('quizRange').value.trim();
         
+        // 重置全域提示計數
         hintLimit = parseInt(document.getElementById('hintLimit').value); 
-        totalHintsUsed = 0; // 問題 3 修正：重置全域提示計數
+        totalHintsUsed = 0; 
 
         quizSettings = {
             count: Math.min(count, vocabList.length), 
@@ -352,7 +359,7 @@
             const type = Math.floor(Math.random() * 2);
             currentQuiz.push({
                 ...selectedVocab,
-                type: type,
+                type: type, // 0 = 英翻中, 1 = 中翻英
                 isCorrect: false,
                 hintsUsed: 0, 
                 studentInput: ''
@@ -369,7 +376,7 @@
         openTab(null, 'quizSetupTab'); 
     }
 
-    // 問題 2 修正：確保題目顯示
+    // 題目顯示修正 (問題 1 & 2)
     function loadQuestion() {
         if (currentQuestionIndex >= currentQuiz.length) {
             endQuiz();
@@ -378,6 +385,7 @@
 
         const currentQ = currentQuiz[currentQuestionIndex];
 
+        // 重置介面
         document.getElementById('quizScore').textContent = `第 ${currentQuestionIndex + 1} 題 / 共 ${currentQuiz.length} 題`;
         document.getElementById('studentAnswer').value = '';
         document.getElementById('quizFeedback').style.display = 'none';
@@ -387,6 +395,7 @@
         document.getElementById('studentAnswer').disabled = false;
         document.querySelector('#quizArea button:nth-child(5)').disabled = false; 
 
+        // 提示狀態更新
         document.getElementById('hintRemaining').textContent = hintLimit - totalHintsUsed;
         if (totalHintsUsed >= hintLimit) {
             document.getElementById('hintButton').style.display = 'none';
@@ -394,26 +403,27 @@
             document.getElementById('hintButton').style.display = 'inline-block';
         }
 
+        // ** 題目內容顯示修正 **
         let questionText = "";
         let quizType = "";
-        if (currentQ.type === 0) { 
+        if (currentQ.type === 0) { // 英翻中
             quizType = "看英文寫中文意思";
-            questionText = `${currentQ.word} (${currentQ.partOfSpeech}) 的中文意思是？`;
-        } else { 
+            questionText = ` ${currentQ.word} (${currentQ.partOfSpeech}) 的中文意思是？`;
+        } else { // 中翻英
             quizType = "看中文意思寫英文單字";
             questionText = `「${currentQ.meaning}」的英文單字是？`;
         }
         document.getElementById('quizType').textContent = `[題型] ${quizType}`;
-        document.getElementById('quizQuestion').textContent = questionText;
+        document.getElementById('quizQuestion').textContent = questionText; // 確保這裡正確寫入內容
     }
 
-    // 問題 3 修正：扣除全域提示次數
+    // 提示機制修正 (問題 2 & 3)
     function showHint() {
         if (totalHintsUsed < hintLimit) {
-            totalHintsUsed++;
+            totalHintsUsed++; // 總提示次數 -1
             currentQuiz[currentQuestionIndex].hintsUsed++; 
             
-            document.getElementById('hintArea').textContent = `情境提示：${currentQuiz[currentQuestionIndex].context}`;
+            document.getElementById('hintArea').textContent = `情境提示：${currentQ.context || '無情境提示。'}`; // 顯示情境
             document.getElementById('hintRemaining').textContent = hintLimit - totalHintsUsed;
         }
 
