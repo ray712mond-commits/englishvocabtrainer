@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>【最終考卷版】我的英文單字練習本 - 共享雲端版</title>
+    <title>【最終修正版】我的英文單字練習本 - 共享雲端版</title>
     
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -59,7 +59,7 @@
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; margin-bottom: 5px; font-weight: 600; }
         .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; transition: border-color 0.3s; }
-        button { background-color: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; transition: background-color 0.3s; }
+        button { background-color: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
         button:hover:not(:disabled) { background-color: #218838; }
         
         /* 考卷樣式 */
@@ -83,7 +83,7 @@
             margin-bottom: 10px;
         }
         .quiz-answer-input {
-            width: calc(100% - 130px); /* 留空間給提示按鈕 */
+            width: calc(100% - 130px);
             padding: 8px;
             margin-right: 10px;
             border: 1px solid #ddd;
@@ -95,6 +95,10 @@
             padding: 8px 10px;
             font-size: 14px;
             vertical-align: top;
+        }
+        .hint-button:disabled {
+             opacity: 0.5;
+             cursor: not-allowed;
         }
         .hint-text {
             margin-top: 8px;
@@ -215,9 +219,8 @@
     let vocabList = [];
     let currentQuiz = []; 
     let editingWord = null; 
-    let isQuizActive = false; // 追蹤測驗是否進行中
+    let isQuizActive = false; 
 
-    // 提示次數追蹤
     let totalHintsUsed = 0; 
     let hintLimit = 3; 
 
@@ -246,6 +249,7 @@
     }
 
     // ** 1. 上傳/更新單字功能 (寫入 Firestore) **
+
     function setupFormListener() {
         document.getElementById('uploadForm').addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -394,11 +398,11 @@
         for (let i = 0; i < actualCount; i++) {
             const randomIndex = Math.floor(Math.random() * availableVocab.length);
             const selectedVocab = availableVocab.splice(randomIndex, 1)[0];
-            const type = Math.floor(Math.random() * 2); // 0=英翻中, 1=中翻英
+            const type = Math.floor(Math.random() * 2); // 0=英翻中, 1=中翻英 (問題 1 修正)
             
             currentQuiz.push({
                 ...selectedVocab,
-                type: type,
+                type: type, 
                 id: selectedVocab.id,
                 isAnswered: false,
                 isCorrect: false,
@@ -432,6 +436,9 @@
                 ? `${q.word} (${q.partOfSpeech}) 的中文意思是？` // 英翻中
                 : `「${q.meaning}」的英文單字是？`; // 中翻英
             
+            // 根據全域提示次數決定按鈕是否禁用
+            const isHintDisabled = totalHintsUsed >= hintLimit;
+
             const itemHtml = `
                 <div class="quiz-question-item" data-id="${q.id}" data-index="${q.questionIndex}">
                     <div class="question-prompt">
@@ -439,7 +446,7 @@
                     </div>
                     <div>
                         <input type="text" class="quiz-answer-input" id="answer-${q.id}" placeholder="請在此輸入答案">
-                        <button class="hint-button" onclick="showHint(this, '${q.id}')" ${totalHintsUsed >= hintLimit ? 'disabled' : ''}>
+                        <button class="hint-button" id="hint-btn-${q.id}" onclick="showHint(this, '${q.id}')" ${isHintDisabled ? 'disabled' : ''}>
                             提示 (剩餘 ${hintLimit - totalHintsUsed})
                         </button>
                     </div>
@@ -453,29 +460,35 @@
 
     /** 顯示提示 (獨立到每題，但共用配額) */
     function showHint(button, docId) {
-        if (totalHintsUsed >= hintLimit) {
-            button.disabled = true;
-            return;
-        }
         
         const question = currentQuiz.find(q => q.id === docId);
         if (!question) return;
 
-        // 如果該題還沒用過提示，才扣除配額
+        if (totalHintsUsed >= hintLimit) {
+            button.disabled = true;
+            return;
+        }
+
+        // 只有在該題還沒用過提示時，才扣除配額
         if (!question.hintUsed) {
             totalHintsUsed++;
             question.hintUsed = true;
         }
 
         // 更新 UI
-        document.getElementById('hintStatus').textContent = `剩餘提示次數：${hintLimit - totalHintsUsed}`;
+        const remainingHints = hintLimit - totalHintsUsed;
+        document.getElementById('hintStatus').textContent = `剩餘提示次數：${remainingHints}`;
         document.getElementById(`hint-text-${docId}`).style.display = 'block';
         button.disabled = true; // 該題按鈕禁用
 
-        // 檢查所有提示按鈕是否需要禁用
-        if (totalHintsUsed >= hintLimit) {
-            document.querySelectorAll('.hint-button').forEach(btn => btn.disabled = true);
-        }
+        // 更新所有提示按鈕的剩餘次數顯示
+        document.querySelectorAll('.hint-button').forEach(btn => {
+            btn.textContent = `提示 (剩餘 ${remainingHints})`;
+            // 如果配額用完，禁用所有提示按鈕 (問題 3 修正)
+            if (remainingHints <= 0) {
+                 btn.disabled = true;
+            }
+        });
     }
 
     /** 提交考卷並批改 */
@@ -492,9 +505,10 @@
         currentQuiz.forEach(q => {
             const resultElement = document.getElementById(`result-text-${q.id}`);
             const inputElement = document.getElementById(`answer-${q.id}`);
-            const hintButton = inputElement.nextElementSibling; // 假設提示按鈕緊隨輸入框
+            const hintButton = document.getElementById(`hint-btn-${q.id}`);
 
             let correctAnswer = q.type === 0 ? q.meaning : q.word;
+            // 簡化批改邏輯：英翻中(包含即可)，中翻英(完全匹配)
             let isCorrect = q.type === 0
                 ? correctAnswer.toLowerCase().includes(q.studentInput.toLowerCase())
                 : q.studentInput.toLowerCase() === correctAnswer.toLowerCase();
@@ -503,7 +517,7 @@
             
             // 禁用輸入框和提示按鈕
             inputElement.disabled = true;
-            hintButton.disabled = true;
+            if (hintButton) hintButton.disabled = true;
 
             // 顯示批改結果
             resultElement.style.display = 'block';
@@ -513,14 +527,14 @@
                 resultElement.innerHTML = `✅ **正確！**`;
             } else {
                 resultElement.className = 'result-reveal result-incorrect';
-                resultElement.innerHTML = `❌ **錯誤！** 正確答案是：${correctAnswer}`;
+                resultElement.innerHTML = `❌ **錯誤！** 正確答案是：${correctAnswer} (${q.type === 0 ? '中文' : '英文'})`;
             }
         });
 
         // 3. 顯示總成績
         const total = currentQuiz.length;
         document.getElementById('quizActionButtons').style.display = 'none';
-        document.getElementById('hintStatus').textContent = `測驗已完成。`;
+        document.getElementById('hintStatus').textContent = `測驗已完成。共使用 ${totalHintsUsed} 次提示。`;
         
         const resultDisplay = document.getElementById('quizResult');
         resultDisplay.style.display = 'block';
@@ -575,7 +589,7 @@
 
     /** Tab 切換功能 */
     function openTab(evt, tabName) {
-        // 如果測驗進行中，且嘗試切換到非測驗頁面，則阻止
+        // 如果測驗進行中，且嘗試切換到非測驗頁面，則阻止 (解決作弊問題)
         if (isQuizActive && tabName !== 'quizArea') {
             alert('測驗正在進行中，請先完成考卷！');
             return;
@@ -588,14 +602,16 @@
         }
         tablinks = document.getElementsByClassName("tab-button");
         for (i = 0; i < tablinks.length; i++) {
-            tablinks[i].className = tablinks[i].className.replace(" active", "");
+            // 只有在非鎖定狀態下才移除 active class
+            if (!tablinks[i].classList.contains('locked')) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
         }
         document.getElementById(tabName).style.display = "block";
         
         if (evt) {
             evt.currentTarget.className += " active";
         } else {
-            // 處理非點擊事件調用的情況 (例如 startQuiz 後自動切換)
             const targetButton = document.querySelector(`.tab-button[onclick*="'${tabName}'"]`);
             if (targetButton) {
                 targetButton.className += " active";
@@ -607,7 +623,7 @@
         }
     }
 
-    // 初始化：確保在所有 DOM 元素載入後才執行程式碼
+    // 確保在所有 DOM 元素載入後才執行程式碼
     window.onload = function() {
         setupFormListener();
         startRealtimeListener();
