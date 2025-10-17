@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>【最終修正版】我的英文單字練習本 - 共享雲端版</title>
+    <title>【最終完美版】我的英文單字練習本 - 共享雲端版</title>
     
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -398,7 +398,7 @@
         for (let i = 0; i < actualCount; i++) {
             const randomIndex = Math.floor(Math.random() * availableVocab.length);
             const selectedVocab = availableVocab.splice(randomIndex, 1)[0];
-            const type = Math.floor(Math.random() * 2); // 0=英翻中, 1=中翻英 (問題 1 修正)
+            const type = Math.floor(Math.random() * 2); // 0=英翻中, 1=中翻英
             
             currentQuiz.push({
                 ...selectedVocab,
@@ -407,7 +407,7 @@
                 isAnswered: false,
                 isCorrect: false,
                 studentInput: '',
-                hintUsed: false, // 追蹤該題是否使用提示
+                hintUsed: false, 
                 questionIndex: i + 1
             });
         }
@@ -436,8 +436,8 @@
                 ? `${q.word} (${q.partOfSpeech}) 的中文意思是？` // 英翻中
                 : `「${q.meaning}」的英文單字是？`; // 中翻英
             
-            // 根據全域提示次數決定按鈕是否禁用
             const isHintDisabled = totalHintsUsed >= hintLimit;
+            const remainingHints = hintLimit - totalHintsUsed;
 
             const itemHtml = `
                 <div class="quiz-question-item" data-id="${q.id}" data-index="${q.questionIndex}">
@@ -445,9 +445,9 @@
                         ${q.questionIndex}. ${prompt}
                     </div>
                     <div>
-                        <input type="text" class="quiz-answer-input" id="answer-${q.id}" placeholder="請在此輸入答案">
+                        <input type="text" class="quiz-answer-input" id="answer-${q.id}" placeholder="請在此輸入答案" autocomplete="off">
                         <button class="hint-button" id="hint-btn-${q.id}" onclick="showHint(this, '${q.id}')" ${isHintDisabled ? 'disabled' : ''}>
-                            提示 (剩餘 ${hintLimit - totalHintsUsed})
+                            提示 (剩餘 ${remainingHints})
                         </button>
                     </div>
                     <div id="hint-text-${q.id}" class="hint-text">情境提示：${q.context}</div>
@@ -471,7 +471,7 @@
 
         // 只有在該題還沒用過提示時，才扣除配額
         if (!question.hintUsed) {
-            totalHintsUsed++;
+            totalHintsUsed++; // 總提示次數 -1
             question.hintUsed = true;
         }
 
@@ -481,10 +481,9 @@
         document.getElementById(`hint-text-${docId}`).style.display = 'block';
         button.disabled = true; // 該題按鈕禁用
 
-        // 更新所有提示按鈕的剩餘次數顯示
+        // 更新所有提示按鈕的剩餘次數顯示和禁用狀態
         document.querySelectorAll('.hint-button').forEach(btn => {
             btn.textContent = `提示 (剩餘 ${remainingHints})`;
-            // 如果配額用完，禁用所有提示按鈕 (問題 3 修正)
             if (remainingHints <= 0) {
                  btn.disabled = true;
             }
@@ -590,7 +589,7 @@
     /** Tab 切換功能 */
     function openTab(evt, tabName) {
         // 如果測驗進行中，且嘗試切換到非測驗頁面，則阻止 (解決作弊問題)
-        if (isQuizActive && tabName !== 'quizArea') {
+        if (isQuizActive && tabName !== 'quizArea' && tabName !== 'quizSetupTab') {
             alert('測驗正在進行中，請先完成考卷！');
             return;
         }
