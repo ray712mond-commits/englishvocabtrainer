@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【共享版】我的英文單字練習本 - 使用 Firebase</title>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebase/9/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebase/9/firebase-firestore.js";
+
+        // =========================================================
+        // !!! 🚨 這裡需要貼上您從 Firebase 專案複製的設定資訊 !!!
+        // =========================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyDbmwpXx0mnZDd5xOcc2qlc3BkrE7_VFVw",
+            authDomain: "englishvocabtrainer-b1de4",
+            projectId: "englishvocabtrainer-b1de4.firebasestorage.app",
+            storageBucket: "415372743931",
+            messagingSenderId: "1:415372743931:web:3a734463227111d5704c5e",
+            appId: "G-C58L8RZ17H"
+        };
+        // =========================================================
+
+        // 初始化 Firebase App 和 Firestore
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const vocabCollection = collection(db, "vocabWords"); // 資料庫中單字的集合名稱
+
+        // 將所有 JavaScript 函數放入一個全域物件，以便在主腳本中存取
+        window.firebaseUtils = {
+            db, vocabCollection, onSnapshot, doc, deleteDoc, addDoc, serverTimestamp
+        };
+    </script>
+
+    <style>
+        /* CSS 樣式與前一個版本相同，保持簡潔 */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f4f7f6; color: #333; }
+        .container { max-width: 900px; margin: auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
+        h1 { color: #007bff; text-align: center; margin-bottom: 30px; }
+        .tab-menu { display: flex; margin-bottom: 20px; border-bottom: 2px solid #ddd; }
+        .tab-button { padding: 12px 20px; cursor: pointer; border: none; background-color: #eee; margin-right: 5px; border-radius: 8px 8px 0 0; font-weight: bold; transition: background-color 0.3s; }
+        .tab-button.active { background-color: #007bff; color: white; border-bottom: 2px solid #007bff; }
+        .tab-content { display: none; padding-top: 20px; }
+        .tab-content.active { display: block; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: 600; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; transition: border-color 0.3s; }
+        .form-group input:focus, .form-group textarea:focus, .form-group select:focus { border-color: #007bff; outline: none; }
+        button { background-color: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; transition: background-color 0.3s; }
+        button:hover { background-color: #218838; }
+        #quizArea { border: 1px dashed #007bff; padding: 20px; border-radius: 8px; margin-top: 20px; }
+        #quizQuestion { font-size: 24px; font-weight: bold; margin-bottom: 15px; min-height: 30px; }
+        #hintArea { margin-top: 10px; color: #555; min-height: 20px; }
+        .feedback { margin-top: 15px; padding: 10px; border-radius: 6px; display: none; }
+        .feedback.correct { background-color: #d4edda; color: #155724; }
+        .feedback.incorrect { background-color: #f8d7da; color: #721c24; }
+        .answer-reveal { margin-top: 10px; font-weight: bold; color: #007bff; }
+        #correctAnswer, #quizScore { margin-top: 10px; font-size: 18px; }
+        #vocabTable th { border: 1px solid #ddd; padding: 8px; background-color: #f2f2f2; text-align: left; }
+        #vocabTable td { border: 1px solid #ddd; padding: 8px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>【共享版】我的英文單字練習本</h1>
+    <p style="text-align: center; color: red; font-weight: bold;">🚨 注意：單字資料已同步至共享雲端資料庫！</p>
+
+    <div class="tab-menu">
+        <button class="tab-button active" onclick="openTab(event, 'uploadTab')">上傳新單字</button>
+        <button class="tab-button" onclick="openTab(event, 'quizSetupTab')">開始抽考</button>
+        <button class="tab-button" onclick="openTab(event, 'listTab')">單字清單 (共享)</button>
+    </div>
+
+    <div id="uploadTab" class="tab-content active">
+        <h2>上傳新單字</h2>
+        <form id="uploadForm">
+            <div class="form-group">
+                <label for="word">單字 (英文):</label>
+                <input type="text" id="word" required>
+            </div>
+            <div class="form-group">
+                <label for="meaning">中文意思:</label>
+                <input type="text" id="meaning" required>
+            </div>
+            <div class="form-group">
+                <label for="partOfSpeech">詞性:</label>
+                <select id="partOfSpeech" required>
+                    <option value="">--請選擇--</option>
+                    <option value="n">名詞 (n.)</option>
+                    <option value="v">動詞 (v.)</option>
+                    <option value="adj">形容詞 (adj.)</option>
+                    <option value="adv">副詞 (adv.)</option>
+                    <option value="prep">介系詞 (prep.)</option>
+                    <option value="conj">連接詞 (conj.)</option>
+                    <option value="phr">片語 (phr.)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="context">看到單字的地方/情況 (作為提示用):</label>
+                <textarea id="context" required></textarea>
+            </div>
+            <button type="submit">儲存單字</button>
+            <p id="uploadMessage" style="color: green; margin-top: 10px; display: none;"></p>
+        </form>
+    </div>
+
+    <div id="quizSetupTab" class="tab-content">
+        <h2>抽考設定</h2>
+        <div class="form-group">
+            <label for="quizCount">抽考題數:</label>
+            <input type="number" id="quizCount" value="10" min="1" max="50">
+        </div>
+        <div class="form-group">
+            <label for="quizRange">抽考範圍 (可選，留空為全部單字):</label>
+            <input type="text" id="quizRange" placeholder="輸入部分中文意思或英文單字，以逗號分隔">
+        </div>
+        <div class="form-group">
+            <label for="hintLimit">提示次數上限 (1~5):</label>
+            <input type="number" id="hintLimit" value="3" min="1" max="5">
+        </div>
+        <button onclick="startQuiz()">開始測驗</button>
+
+        <div id="quizArea" style="display: none;">
+            <h3>單字測驗</h3>
+            <p id="quizScore">第 1 題 / 共 10 題</p>
+            <p id="quizType"></p>
+            <div id="quizQuestion"></div>
+            <div class="form-group">
+                <label for="studentAnswer">您的答案:</label>
+                <input type="text" id="studentAnswer">
+            </div>
+            <button onclick="submitAnswer()">送出答案</button>
+            <button onclick="showHint()" id="hintButton">提示 (剩餘 <span id="hintRemaining">3</span> 次)</button>
+
+            <div id="hintArea"></div>
+            
+            <div class="feedback" id="quizFeedback"></div>
+            <div id="correctAnswer" style="display: none;">正確答案: <span id="theAnswer"></span></div>
+            <button onclick="nextQuestion()" id="nextButton" style="display: none; background-color: #007bff;">下一題</button>
+        </div>
+        <div id="quizResult" style="margin-top: 20px; font-size: 20px; font-weight: bold; display: none;"></div>
+    </div>
+
+    <div id="listTab" class="tab-content">
+        <h2>已上傳單字清單 (共享)</h2>
+        <p>目前總計：<span id="vocabCount">0</span> 個單字</p>
+        <table id="vocabTable" style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+            <thead>
+                <tr>
+                    <th>單字 (詞性)</th>
+                    <th>中文意思</th>
+                    <th>情境 (提示)</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+    </div>
+
+</div>
+
+<script>
+    // ** 全域變數 **
+    let vocabList = [];
+    let currentQuiz = []; 
+    let currentQuestionIndex = 0;
+    let quizSettings = {};
+    let currentHintsUsed = 0;
+    let correctAnswers = 0;
+
+    // ** 資料儲存 (使用 Firebase Firestore) **
+    
+    /** 啟動即時監聽，從 Firestore 讀取所有單字並更新全域變數 */
+    function startRealtimeListener() {
+        const { vocabCollection, onSnapshot } = window.firebaseUtils;
+
+        onSnapshot(vocabCollection, (snapshot) => {
+            vocabList = [];
+            snapshot.forEach((doc) => {
+                // 將 Firebase 文件 ID 作為唯一 ID 儲存 (重要!)
+                vocabList.push({ id: doc.id, ...doc.data() });
+            });
+            // 資料更新後，立即重新渲染列表
+            renderVocabList(); 
+        }, (error) => {
+            console.error("Error listening to Firestore: ", error);
+            document.getElementById('vocabCount').textContent = '載入失敗';
+            alert("無法從資料庫載入單字。請檢查 Firebase 連線或設定。");
+        });
+    }
+
+    // ** 1. 上傳單字功能 (寫入 Firestore) **
+
+    document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const { vocabCollection, addDoc, serverTimestamp } = window.firebaseUtils;
+
+        const newWordData = {
+            word: document.getElementById('word').value.trim(),
+            meaning: document.getElementById('meaning').value.trim(),
+            partOfSpeech: document.getElementById('partOfSpeech').value,
+            context: document.getElementById('context').value.trim(),
+            timestamp: serverTimestamp(), // 記錄上傳時間
+            // 💡 提示：未來若實作學生登入，可以在這裡加上 `userId: currentUser.uid`
+        };
+
+        // 檢查單字是否已經存在 (簡化檢查，精確檢查需要更複雜的 Firestore 查詢)
+        const existing = vocabList.find(v => v.word.toLowerCase() === newWordData.word.toLowerCase());
+        if (existing) {
+            alert(`單字 "${newWordData.word}" 已經存在於清單中！`);
+            return;
+        }
+
+        try {
+            await addDoc(vocabCollection, newWordData);
+
+            // 顯示成功訊息並清空表單
+            const msg = document.getElementById('uploadMessage');
+            msg.textContent = `成功儲存單字: ${newWordData.word} (已同步到雲端)`;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 3000);
+            document.getElementById('uploadForm').reset();
+        } catch (error) {
+            console.error("Error adding document: ", error);
+            alert("儲存失敗！請檢查 Firebase 設定或權限 (Firestore Rules)。");
+        }
+    });
+
+    // ** 3. 單字清單顯示/操作 **
+
+    /** 渲染單字清單表格 */
+    function renderVocabList() {
+        const tbody = document.getElementById('vocabTable').querySelector('tbody');
+        tbody.innerHTML = '';
+        document.getElementById('vocabCount').textContent = vocabList.length;
+
+        // 💡 老師可以從這裡看到所有學生上傳的單字
+        vocabList.forEach(vocab => {
+            const row = tbody.insertRow();
+            // 注意：這裡使用 vocab.id，它現在是 Firestore 的文件 ID (Document ID)
+            row.innerHTML = `
+                <td>${vocab.word} (${vocab.partOfSpeech})</td>
+                <td>${vocab.meaning}</td>
+                <td>${vocab.context}</td>
+                <td><button style="background-color: #dc3545;" onclick="deleteVocab('${vocab.id}')">刪除</button></td>
+            `;
+        });
+    }
+
+    /** 刪除單字 (從 Firestore 刪除) */
+    async function deleteVocab(docId) {
+        const { db, doc, deleteDoc } = window.firebaseUtils;
+        
+        if (confirm('確定要刪除這個單字嗎？此操作會從共享資料庫中永久移除！')) {
+            try {
+                await deleteDoc(doc(db, "vocabWords", docId));
+                // 成功後，onSnapshot 會自動更新清單
+            } catch (error) {
+                 console.error("Error deleting document: ", error);
+                 alert("刪除失敗！請檢查 Firebase 連線或權限。");
+            }
+        }
+    }
+
+    // ** 2. 抽考功能 (邏輯與前一個版本相同，因為它依賴於已同步的 vocabList 陣列) **
+
+    /** 初始化測驗設定並準備題目 */
+    function startQuiz() {
+        if (vocabList.length === 0) {
+            alert('單字清單是空的，請先上傳單字！');
+            return;
+        }
+
+        // 讀取設定
+        const count = parseInt(document.getElementById('quizCount').value);
+        const rangeText = document.getElementById('quizRange').value.trim();
+        const hintLimit = parseInt(document.getElementById('hintLimit').value);
+        
+        quizSettings = {
+            count: Math.min(count, vocabList.length), 
+            range: rangeText ? rangeText.toLowerCase().split(',').map(s => s.trim()) : [],
+            hintLimit: Math.min(Math.max(hintLimit, 1), 5) 
+        };
+
+        // 篩選範圍
+        let filteredVocab = vocabList;
+        if (quizSettings.range.length > 0 && quizSettings.range[0] !== "") {
+            filteredVocab = vocabList.filter(vocab => {
+                return quizSettings.range.some(keyword => 
+                    vocab.word.toLowerCase().includes(keyword) || 
+                    vocab.meaning.includes(keyword)
+                );
+            });
+        }
+
+        if (filteredVocab.length === 0) {
+            alert('找不到符合範圍的單字，請修改抽考範圍！');
+            return;
+        }
+
+        // 隨機抽選題目
+        currentQuiz = [];
+        const availableVocab = [...filteredVocab]; 
+        for (let i = 0; i < quizSettings.count; i++) {
+            const randomIndex = Math.floor(Math.random() * availableVocab.length);
+            const selectedVocab = availableVocab.splice(randomIndex, 1)[0];
+            
+            // 隨機決定考法: 0=看英文寫中文, 1=看中文寫英文
+            const type = Math.floor(Math.random() * 2);
+            currentQuiz.push({
+                ...selectedVocab,
+                type: type,
+                isCorrect: false,
+                hintsUsed: 0,
+                studentInput: ''
+            });
+            if (availableVocab.length === 0) break;
+        }
+
+        // 重置測驗狀態
+        currentQuestionIndex = 0;
+        correctAnswers = 0;
+        document.getElementById('quizArea').style.display = 'block';
+        document.getElementById('quizResult').style.display = 'none';
+
+        loadQuestion();
+        openTab(null, 'quizSetupTab'); 
+    }
+
+    /** 載入當前題目 */
+    function loadQuestion() {
+        if (currentQuestionIndex >= currentQuiz.length) {
+            endQuiz();
+            return;
+        }
+
+        const currentQ = currentQuiz[currentQuestionIndex];
+        currentHintsUsed = currentQ.hintsUsed;
+
+        // 重置介面
+        document.getElementById('quizScore').textContent = `第 ${currentQuestionIndex + 1} 題 / 共 ${currentQuiz.length} 題`;
+        document.getElementById('studentAnswer').value = '';
+        document.getElementById('quizFeedback').style.display = 'none';
+        document.getElementById('correctAnswer').style.display = 'none';
+        document.getElementById('nextButton').style.display = 'none';
+        document.getElementById('hintArea').textContent = '';
+        document.getElementById('hintButton').style.display = 'inline-block';
+        document.getElementById('hintRemaining').textContent = quizSettings.hintLimit - currentHintsUsed;
+        document.getElementById('studentAnswer').disabled = false;
+        document.querySelector('#quizArea button:nth-child(5)').disabled = false; 
+
+        // 設置問題
+        let questionText = "";
+        let quizType = "";
+        if (currentQ.type === 0) { 
+            quizType = "看英文寫中文意思";
+            questionText = `${currentQ.word} (${currentQ.partOfSpeech}) 的中文意思是？`;
+        } else { 
+            quizType = "看中文意思寫英文單字";
+            questionText = `「${currentQ.meaning}」的英文單字是？`;
+        }
+        document.getElementById('quizType').textContent = `[題型] ${quizType}`;
+        document.getElementById('quizQuestion').textContent = questionText;
+
+        // 隱藏/顯示提示按鈕
+        if (currentHintsUsed >= quizSettings.hintLimit) {
+            document.getElementById('hintButton').style.display = 'none';
+        }
+    }
+
+    /** 顯示提示 */
+    function showHint() {
+        if (currentHintsUsed < quizSettings.hintLimit) {
+            currentHintsUsed++;
+            currentQuiz[currentQuestionIndex].hintsUsed = currentHintsUsed; 
+            
+            document.getElementById('hintArea').textContent = `情境提示：${currentQuiz[currentQuestionIndex].context}`;
+            document.getElementById('hintRemaining').textContent = quizSettings.hintLimit - currentHintsUsed;
+        }
+
+        if (currentHintsUsed >= quizSettings.hintLimit) {
+            document.getElementById('hintButton').style.display = 'none';
+        }
+    }
+
+    /** 送出答案並批改 */
+    function submitAnswer() {
+        const studentAnswer = document.getElementById('studentAnswer').value.trim();
+        const currentQ = currentQuiz[currentQuestionIndex];
+        
+        // 批改邏輯
+        let isCorrect = false;
+        let correctAnswerText = '';
+
+        if (currentQ.type === 0) { 
+            correctAnswerText = currentQ.meaning;
+            isCorrect = correctAnswerText.toLowerCase().includes(studentAnswer.toLowerCase());
+        } else { 
+            correctAnswerText = currentQ.word;
+            isCorrect = studentAnswer.toLowerCase() === correctAnswerText.toLowerCase();
+        }
+
+        // 顯示結果
+        const feedback = document.getElementById('quizFeedback');
+        const correctDisplay = document.getElementById('theAnswer');
+        
+        feedback.style.display = 'block';
+        document.getElementById('correctAnswer').style.display = 'block';
+        document.getElementById('nextButton').style.display = 'inline-block';
+        document.getElementById('hintButton').style.display = 'none';
+        document.getElementById('studentAnswer').disabled = true;
+        document.querySelector('#quizArea button:nth-child(5)').disabled = true; 
+        
+        correctDisplay.textContent = correctAnswerText;
+
+        if (isCorrect && !currentQ.isCorrect) { 
+            feedback.className = 'feedback correct';
+            feedback.textContent = '✅ 正確！答對了！';
+            correctAnswers++;
+            currentQ.isCorrect = true; 
+        } else if (isCorrect && currentQ.isCorrect) {
+             feedback.className = 'feedback correct';
+            feedback.textContent = '✅ 正確！';
+        } else {
+            feedback.className = 'feedback incorrect';
+            feedback.textContent = '❌ 錯誤！請看正確答案，或點選下一題。';
+        }
+
+        // 儲存學生的作答紀錄
+        currentQ.studentInput = studentAnswer;
+    }
+
+    /** 進入下一題 */
+    function nextQuestion() {
+        currentQuestionIndex++;
+        loadQuestion();
+    }
+
+    /** 結束測驗 */
+    function endQuiz() {
+        document.getElementById('quizArea').style.display = 'none';
+        const resultDisplay = document.getElementById('quizResult');
+        resultDisplay.style.display = 'block';
+        resultDisplay.innerHTML = `
+            測驗結束！<br>
+            總共 ${currentQuiz.length} 題，答對 ${correctAnswers} 題。<br>
+            正確率：${((correctAnswers / currentQuiz.length) * 100).toFixed(1)}%
+            <hr>
+            <h4>測驗結果詳情：</h4>
+        `;
+        
+        currentQuiz.forEach((q, index) => {
+            const correctAnswer = q.type === 0 ? q.meaning : q.word;
+            const questionPrompt = q.type === 0 ? q.word : q.meaning;
+            const status = q.isCorrect ? '✅ 答對' : '❌ 答錯';
+            const statusColor = q.isCorrect ? 'green' : 'red';
+            resultDisplay.innerHTML += `
+                <p style="border-left: 4px solid ${statusColor}; padding-left: 10px;">
+                    <strong>${index + 1}. ${questionPrompt}</strong> <span style="color: ${statusColor};">(${status})</span><br>
+                    您的答案: ${q.studentInput || '未作答'} <br>
+                    正確答案: ${correctAnswer} (${q.partOfSpeech})<br>
+                    提示使用: ${q.hintsUsed} 次
+                </p>
+            `;
+        });
+    }
+
+    // ** 介面控制 **
+
+    /** Tab 切換功能 */
+    function openTab(evt, tabName) {
+        let i, tabcontent, tablinks;
+        tabcontent = document.getElementsByClassName("tab-content");
+        for (i = 0; i < tabcontent.length; i++) {
+            tabcontent[i].style.display = "none";
+        }
+        tablinks = document.getElementsByClassName("tab-button");
+        for (i = 0; i < tablinks.length; i++) {
+            tablinks[i].className = tablinks[i].className.replace(" active", "");
+        }
+        document.getElementById(tabName).style.display = "block";
+        if (evt) {
+            evt.currentTarget.className += " active";
+        } else {
+            document.querySelector(`.tab-button[onclick*="${tabName}"]`).className += " active";
+        }
+    }
+
+    // 初始化：啟動即時資料庫監聽
+    window.onload = function() {
+        // 檢查 Firebase 函式是否已載入
+        if (window.firebaseUtils) {
+             startRealtimeListener();
+        } else {
+            alert("Firebase 函式庫載入失敗！請檢查您的網路連線或 Firebase SDK 程式碼是否正確。");
+        }
+        openTab(null, 'uploadTab'); 
+    };
+</script>
+
+</body>
+</html>
