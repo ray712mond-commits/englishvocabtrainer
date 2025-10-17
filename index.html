@@ -1,27 +1,30 @@
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebase/9/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebase/9/firebase-firestore.js";
 
-    <script>
         // =========================================================
         // !!! 🚨 這裡需要貼上您從 Firebase 專案複製的設定資訊 !!!
-        // 請確保您已將所有 YOUR_FIREBASE_CONFIG_... 替換成實際金鑰
+        // 請確認您的金鑰已經貼在這裡，不要再保留 YOUR_FIREBASE_CONFIG_...
         // =========================================================
         const firebaseConfig = {
-            apiKey: "AIzaSyDbmwpXx0mnZDd5xOcc2qlc3BkrE7_VFVw", // <--- 替換這裡
-            authDomain: "englishvocabtrainer-b1de4.firebaseapp.com", // <--- 替換這裡
-            projectId: "englishvocabtrainer-b1de4", // <--- 替換這裡
+            apiKey: "AIzaSyDbmwpXx0mnZDd5xOcc2qlc3BkrE7_VFVw", // <-- 替換成您的實際金鑰
+            authDomain: "englishvocabtrainer-b1de4.firebaseapp.com", // <-- 替換成您的實際網域
+            projectId: "englishvocabtrainer-b1de4", // <-- 替換成您的實際專案 ID
             storageBucket: "englishvocabtrainer-b1de4.firebasestorage.app",
             messagingSenderId: "415372743931",
             appId: "1:415372743931:web:3a734463227111d5704c5e"
         };
+        // =========================================================
 
-        // 傳統初始化方式
-        const app = firebase.initializeApp(firebaseConfig);
-        const db = app.firestore(); // 取得 Firestore 服務
+        // 初始化 Firebase App 和 Firestore
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const vocabCollection = collection(db, "vocabWords");
 
-        // 將所有需要的函式和物件都導出到全域，供下方的主邏輯使用
-        window.db = db;
-        window.vocabCollection = db.collection("vocabWords");
+        // 導出所有需要的 Firebase 函式
+        window.firebaseUtils = {
+            db, vocabCollection, onSnapshot, doc, deleteDoc, addDoc, updateDoc, serverTimestamp
+        };
     </script>
 
     <script>
@@ -32,23 +35,26 @@
         let quizSettings = {};
         let correctAnswers = 0;
 
+        // 問題 3 修正：提示次數改為全域追蹤，不隨題目重置
         let totalHintsUsed = 0; 
-        let hintLimit = 3; 
+        let hintLimit = 3; // 預設值
+
+        // 問題 4 修正：用於追蹤當前正在編輯的單字 (如果為 null 則表示新增)
         let editingWord = null; 
 
         // ** 資料儲存 (使用 Firebase Firestore) **
         
         /** 啟動即時監聽，從 Firestore 讀取所有單字並更新全域變數 */
         function startRealtimeListener() {
-            // 檢查全域變數是否已初始化
-            if (!window.db || !window.vocabCollection) {
-                console.error("Firebase 函式庫未載入！請檢查 CDN 腳本是否正確。");
+            if (!window.firebaseUtils) {
+                console.error("Firebase 函式庫未載入！");
                 document.getElementById('vocabCount').textContent = '載入失敗 (Firebase 錯誤)';
                 return;
             }
+            const { vocabCollection, onSnapshot } = window.firebaseUtils;
 
-            // 使用傳統的 onSnapshot 監聽方式
-            window.vocabCollection.onSnapshot((snapshot) => {
+            // Firestore 監聽：按單字字母排序，方便查找
+            onSnapshot(vocabCollection, (snapshot) => {
                 vocabList = [];
                 snapshot.forEach((doc) => {
                     vocabList.push({ id: doc.id, ...doc.data() });
@@ -56,6 +62,7 @@
                 // 讓單字清單按英文單字字母排序，方便查找
                 vocabList.sort((a, b) => a.word.localeCompare(b.word));
                 
+                // 資料更新後，立即重新渲染列表
                 renderVocabList(); 
             }, (error) => {
                 console.error("Error listening to Firestore: ", error);
@@ -69,8 +76,10 @@
             e.preventDefault();
 
             const submitButton = e.target.querySelector('button[type="submit"]');
-            submitButton.disabled = true;
+            submitButton.disabled = true; // 問題 1 修正：防止重複點擊
             
+            const { vocabCollection, addDoc, doc, updateDoc, serverTimestamp } = window.firebaseUtils;
+
             const newWordData = {
                 word: document.getElementById('word').value.trim(),
                 meaning: document.getElementById('meaning').value.trim(),
@@ -82,21 +91,22 @@
 
             try {
                 if (editingWord) {
-                    // 修改現有單字
-                    await window.vocabCollection.doc(editingWord.id).update(newWordData);
+                    // 問題 4 修正：這是修改現有單字
+                    const wordRef = doc(vocabCollection, editingWord.id);
+                    await updateDoc(wordRef, newWordData);
                     msg.textContent = `成功更新單字: ${newWordData.word}`;
                 } else {
-                    // 新增單字
+                    // 這是新增單字
                     
-                    // 檢查單字是否已經存在
+                    // 檢查單字是否已經存在 (簡化檢查)
                     const existing = vocabList.find(v => v.word.toLowerCase() === newWordData.word.toLowerCase());
                     if (existing) {
                         alert(`單字 "${newWordData.word}" 已經存在於清單中！`);
-                        submitButton.disabled = false;
+                        submitButton.disabled = false; // 恢復按鈕
                         return;
                     }
 
-                    await window.vocabCollection.add({ ...newWordData, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+                    await addDoc(vocabCollection, { ...newWordData, timestamp: serverTimestamp() });
                     msg.textContent = `成功儲存單字: ${newWordData.word} (已同步到雲端)`;
                 }
 
@@ -108,9 +118,9 @@
                 
             } catch (error) {
                 console.error("Error saving document: ", error);
-                alert("儲存/更新失敗！請檢查 Firebase 設定、權限或網路連線。");
+                alert("儲存/更新失敗！請檢查 Firebase 設定或網路連線。");
             } finally {
-                submitButton.disabled = false;
+                submitButton.disabled = false; // 問題 1 修正：不論成功失敗，都要恢復按鈕
             }
         });
 
@@ -144,29 +154,34 @@
             });
         }
 
-        /** 編輯單字 */
+        /** 編輯單字 (問題 4 修正：新增功能) */
         function editVocab(docId) {
             const vocab = vocabList.find(v => v.id === docId);
             if (!vocab) return;
 
             editingWord = vocab;
             
+            // 載入資料到表單
             document.getElementById('word').value = vocab.word;
             document.getElementById('meaning').value = vocab.meaning;
             document.getElementById('partOfSpeech').value = vocab.partOfSpeech;
             document.getElementById('context').value = vocab.context;
 
+            // 更改按鈕和標題文字
             document.getElementById('uploadForm').querySelector('button[type="submit"]').textContent = '更新單字';
             document.getElementById('uploadTab').querySelector('h2').textContent = `修改單字: ${vocab.word}`;
 
+            // 切換到上傳分頁
             openTab(null, 'uploadTab');
         }
 
         /** 刪除單字 (從 Firestore 刪除) */
         async function deleteVocab(docId) {
+            const { db, doc, deleteDoc } = window.firebaseUtils;
+            
             if (confirm('確定要刪除這個單字嗎？此操作會從共享資料庫中永久移除！')) {
                 try {
-                    await window.vocabCollection.doc(docId).delete();
+                    await deleteDoc(doc(db, "vocabWords", docId));
                 } catch (error) {
                     console.error("Error deleting document: ", error);
                     alert("刪除失敗！請檢查 Firebase 連線或權限。");
@@ -174,26 +189,31 @@
             }
         }
 
-        // ** 2. 抽考功能 (以下邏輯不變) **
+        // ** 2. 抽考功能 **
 
         /** 初始化測驗設定並準備題目 */
         function startQuiz() {
+            // 問題 2 修正：檢查單字是否已載入
             if (vocabList.length === 0) {
                 alert('單字清單是空的，請先上傳單字，或等待資料庫載入完成！');
                 return;
             }
 
+            // 讀取設定
             const count = parseInt(document.getElementById('quizCount').value);
             const rangeText = document.getElementById('quizRange').value.trim();
             
+            // 問題 3 修正：全域設定提示次數
             hintLimit = parseInt(document.getElementById('hintLimit').value); 
-            totalHintsUsed = 0; 
+            totalHintsUsed = 0; // 問題 3 修正：重置全域提示計數
 
             quizSettings = {
                 count: Math.min(count, vocabList.length), 
                 range: rangeText ? rangeText.toLowerCase().split(',').map(s => s.trim()) : [],
                 hintLimit: Math.min(Math.max(hintLimit, 1), 5) 
             };
+
+            // ... (以下篩選和抽選邏輯不變)
 
             let filteredVocab = vocabList;
             if (quizSettings.range.length > 0 && quizSettings.range[0] !== "") {
@@ -226,6 +246,7 @@
                 if (availableVocab.length === 0) break;
             }
 
+            // 重置測驗狀態
             currentQuestionIndex = 0;
             correctAnswers = 0;
             document.getElementById('quizArea').style.display = 'block';
@@ -244,6 +265,7 @@
 
             const currentQ = currentQuiz[currentQuestionIndex];
 
+            // 重置介面
             document.getElementById('quizScore').textContent = `第 ${currentQuestionIndex + 1} 題 / 共 ${currentQuiz.length} 題`;
             document.getElementById('studentAnswer').value = '';
             document.getElementById('quizFeedback').style.display = 'none';
@@ -253,6 +275,7 @@
             document.getElementById('studentAnswer').disabled = false;
             document.querySelector('#quizArea button:nth-child(5)').disabled = false; 
 
+            // 問題 3 修正：根據全域提示次數決定按鈕狀態
             document.getElementById('hintRemaining').textContent = hintLimit - totalHintsUsed;
             if (totalHintsUsed >= hintLimit) {
                 document.getElementById('hintButton').style.display = 'none';
@@ -260,6 +283,7 @@
                 document.getElementById('hintButton').style.display = 'inline-block';
             }
 
+            // 設置問題 (問題 2 修正：確保題目能顯示)
             let questionText = "";
             let quizType = "";
             if (currentQ.type === 0) { 
@@ -273,7 +297,7 @@
             document.getElementById('quizQuestion').textContent = questionText;
         }
 
-        /** 顯示提示 */
+        /** 顯示提示 (問題 3 修正：扣除全域提示次數) */
         function showHint() {
             if (totalHintsUsed < hintLimit) {
                 totalHintsUsed++;
@@ -288,7 +312,7 @@
             }
         }
 
-        /** 送出答案並批改 (邏輯不變) */
+        /** 送出答案並批改 */
         function submitAnswer() {
             const studentAnswer = document.getElementById('studentAnswer').value.trim();
             const currentQ = currentQuiz[currentQuestionIndex];
@@ -394,8 +418,11 @@
 
         // 初始化：啟動即時資料庫監聽
         window.onload = function() {
-            // 由於採用傳統 CDN 方式，我們知道初始化會先於此處執行
-            startRealtimeListener();
+            if (window.firebaseUtils) {
+                startRealtimeListener();
+            } else {
+                console.error("Firebase 函式庫未載入，可能影響資料庫連線。");
+            }
             openTab(null, 'uploadTab'); 
         };
     </script>
